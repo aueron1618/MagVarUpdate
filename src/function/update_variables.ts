@@ -1668,8 +1668,16 @@ export async function updateVariables(
     return is_modified;
 }
 
-/** 读取本条消息并建立或更新变量快照。 */
-export async function handleVariablesInMessage(message_id: number) {
+/**
+ * 读取本条消息并建立或更新变量快照，变量写入完成后刷新显示。
+ * 自动接收路径可接管 refresh，避免在宿主渲染前重复派发渲染事件；手动调用默认主动刷新。
+ */
+export async function handleVariablesInMessage(
+    message_id: number,
+    {
+        refresh = () => setChatMessages([{ message_id }], { refresh: 'affected' }),
+    }: { refresh?: () => void | Promise<void> } = {}
+) {
     const chat_message = getChatMessages(message_id).at(-1);
     if (!chat_message) {
         return;
@@ -1762,8 +1770,6 @@ export async function handleVariablesInMessage(message_id: number) {
     await updateVariablesWith(updater, { type: 'message', message_id: message_id });
 
     if (latest_chat_message.role !== 'user') {
-        await setChatMessages([{ message_id: message_id }], {
-            refresh: 'affected',
-        });
+        await refresh();
     }
 }

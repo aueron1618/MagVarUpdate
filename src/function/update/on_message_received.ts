@@ -7,6 +7,46 @@ import { handleVariablesInMessage } from '@/function/update_variables';
 import { tr } from '@/i18n';
 import { useDataStore } from '@/store';
 
+/**
+ * 随 AI 输出时，宿主还会在 MESSAGE_RECEIVED 之后派发渲染事件。
+ * 只同步正文 DOM，不提前触发助手的 iframe 渲染；流式宿主不会再次格式化正文，不能仅保存文本。
+ * 如果宿主未等待接收处理（例如流式出错），则在变量写回后主动补一次必要的刷新。
+ */
+async function handleVariablesBeforeRender(
+    message_id: number,
+    isCurrentMessage: () => boolean,
+    signal?: AbortSignal
+) {
+    let host_has_rendered = false;
+    const onRendered = (rendered_message_id: number) => {
+        if (rendered_message_id === message_id) host_has_rendered = true;
+    };
+    const stop = () => eventRemoveListener(tavern_events.CHARACTER_MESSAGE_RENDERED, onRendered);
+    eventOn(tavern_events.CHARACTER_MESSAGE_RENDERED, onRendered);
+    signal?.addEventListener('abort', stop, { once: true });
+    try {
+        await handleVariablesInMessage(message_id, {
+            refresh: async () => {
+                if (!isCurrentMessage()) return;
+                if (host_has_rendered) {
+                    await setChatMessages([{ message_id }], { refresh: 'affected' });
+                    return;
+                }
+                const latest_message = getChatMessages(message_id).at(-1);
+                const $message = retrieveDisplayedMessage(message_id);
+                if (latest_message && $message.length > 0) {
+                    $message
+                        .empty()
+                        .append(formatAsDisplayedMessage(latest_message.message, { message_id }));
+                }
+            },
+        });
+    } finally {
+        stop();
+        signal?.removeEventListener('abort', stop);
+    }
+}
+
 /** 接收时启动解析；非工具调用的自动解析在本条消息渲染后等待结果并写回。 */
 export async function onMessageReceived(
     message_id: number,
@@ -44,16 +84,21 @@ export async function onMessageReceived(
         SillyTavern.chat[message_id] === chat_message &&
         chat_message?.swipe_id === swipe_id;
 
+    const follows_ai_output = store.effective_settings.更新方式 === '随AI输出';
     if (
-        store.effective_settings.更新方式 === '随AI输出' ||
+        follows_ai_output ||
         (store.settings.额外模型解析配置.模型来源 === '更多' && !isPiMultiproviderEnabled()) ||
         (store.settings.额外模型解析配置.应答格式 === '工具调用' &&
             store.settings.额外模型解析配置.模型来源 !== '更多' &&
             !isFunctionCallingSupported()) ||
         !(await isExtraModelSupported())
     ) {
-        if (!signal?.aborted && SillyTavern.getCurrentChatId() === chat_id) {
-            await handleVariablesInMessage(message_id);
+        if (isCurrentMessage()) {
+            if (follows_ai_output && !force) {
+                await handleVariablesBeforeRender(message_id, isCurrentMessage, signal);
+            } else {
+                await handleVariablesInMessage(message_id);
+            }
         }
         return;
     }
