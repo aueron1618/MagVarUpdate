@@ -157,6 +157,72 @@ test.each([
     }
 });
 
+test.each([
+    ['非流式', false],
+    ['非流式', true],
+    ['流式', false],
+    ['流式', true],
+] as const)(
+    '%s 关闭自动占位符，模型已有占位符=%s：不补全、不删除、不影响变量',
+    async (mode, supplied) => {
+        useDataStore().settings.自动插入状态栏占位符 = false;
+        const original = BODY + (supplied ? `\n\n${PLACEHOLDER}` : '');
+        SillyTavern.chat[1].mes = original;
+        if (mode === '流式') mountMessage(1);
+        const stop = initResponse();
+        try {
+            await eventEmit(tavern_events.MESSAGE_RECEIVED, 1, 'normal');
+            expect(renderObserver).not.toHaveBeenCalled();
+            expect(SillyTavern.chat[1].mes).toBe(original);
+            expect(_.get(SillyTavern.chat[1], 'variables.0.stat_data.health')).toBe(80);
+            if (mode === '非流式') mountMessage(1);
+            await emitRendered();
+            expect(renderObserver).toHaveBeenCalledTimes(1);
+            expect(display(1).find('.status-bar')).toHaveLength(supplied ? 1 : 0);
+            if (supplied) expect(display(1).find('.status-bar').text()).toBe('80');
+            expect(setChatMessages).not.toHaveBeenCalled();
+        } finally {
+            stop();
+        }
+    }
+);
+
+test.each(['随AI输出', '额外模型解析'] as const)(
+    '%s 的共享处理及手动重处理遵守开关',
+    async method => {
+        const store = useDataStore();
+        store.settings.更新方式 = method;
+        store.settings.自动插入状态栏占位符 = false;
+        mountMessage(1);
+        await handleVariablesInMessage(1);
+        expect(SillyTavern.chat[1].mes).toBe(BODY);
+        expect(_.get(SillyTavern.chat[1], 'variables.0.stat_data.health')).toBe(80);
+        expect(display(1).find('.status-bar')).toHaveLength(0);
+        expect(renderObserver).toHaveBeenCalledTimes(1);
+
+        store.settings.自动插入状态栏占位符 = true;
+        await handleVariablesInMessage(1);
+        expect(SillyTavern.chat[1].mes).toBe(`${BODY}\n\n${PLACEHOLDER}`);
+        expect(display(1).find('.status-bar')).toHaveLength(1);
+
+        store.settings.自动插入状态栏占位符 = false;
+        await handleVariablesInMessage(1);
+        expect(SillyTavern.chat[1].mes).toBe(`${BODY}\n\n${PLACEHOLDER}`);
+        expect(display(1).find('.status-bar')).toHaveLength(1);
+    }
+);
+
+test('关闭自动占位符仍执行正文钩子并清理回显的变量数据', async () => {
+    useDataStore().settings.自动插入状态栏占位符 = false;
+    SillyTavern.chat[1].mes += '<status_current_variable>旧变量</status_current_variable>';
+    eventOn(variable_events.BEFORE_MESSAGE_UPDATE, context => {
+        context.message_content += '\n钩子追加内容';
+    });
+    await handleVariablesInMessage(1);
+    expect(SillyTavern.chat[1].mes).toBe(`${BODY}\n钩子追加内容`);
+    expect(_.get(SillyTavern.chat[1], 'variables.0.stat_data.health')).toBe(80);
+});
+
 test('相邻接收事件不被节流推迟到宿主渲染之后', async () => {
     const stop = initResponse();
     try {

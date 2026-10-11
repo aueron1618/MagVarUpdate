@@ -160,6 +160,15 @@ export const panelMessages = defineMessages({
         'zh-CN': '变量更新方式',
         en: 'Variable update method',
     },
+    'panel.update.autoInsertPlaceholder': {
+        'zh-CN': '自动插入状态栏占位符',
+        en: 'Automatically insert the status-bar placeholder',
+    },
+    'panel.update.autoInsertPlaceholderHelp': {
+        'zh-CN':
+            '默认开启。处理变量时，若消息缺少 &lt;StatusPlaceHolderImpl/&gt;，则自动补上。适用于随 AI 输出、额外模型解析及手动重新处理。关闭后仍正常更新变量，不删除已有占位符；没有占位符的消息不会通过该占位符渲染状态栏。',
+        en: 'Enabled by default. When processing variables, append &lt;StatusPlaceHolderImpl/&gt; if it is missing. Applies to AI output, extra-model parsing, and manual reprocessing. Disabling this keeps variable updates and existing placeholders unchanged; messages without a placeholder will not render a status bar through it.',
+    },
     'panel.update.method.aiOutput': {
         'zh-CN': '随 AI 输出',
         en: 'Alongside AI output',
@@ -428,8 +437,8 @@ export const panelMessages = defineMessages({
     },
     'panel.request.autoHelp': {
         'zh-CN':
-            '关闭后，AI 回复完成时不会自动触发额外模型解析；你需要主动点击“重试额外模型解析”按钮，才会执行解析并添加状态栏占位符 &lt;StatusPlaceHolderImpl/&gt;。',
-        en: 'When disabled, extra-model parsing is not triggered automatically after the AI finishes replying. Click “Retry extra-model parsing” to run it and add the status-bar placeholder &lt;StatusPlaceHolderImpl/&gt;.',
+            '关闭后，AI 回复完成时不会自动触发额外模型解析；你需要主动点击“重试额外模型解析”按钮，才会执行解析。是否补上 &lt;StatusPlaceHolderImpl/&gt; 由“自动插入状态栏占位符”开关控制。',
+        en: 'When disabled, extra-model parsing is not triggered automatically after the AI finishes replying. Click “Retry extra-model parsing” to run it. Whether &lt;StatusPlaceHolderImpl/&gt; is appended depends on the automatic status-bar placeholder setting.',
     },
     'panel.request.batchWarning': {
         'zh-CN':

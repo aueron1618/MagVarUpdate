@@ -10,6 +10,11 @@
         <template #content>
             <Method />
 
+            <Checkbox v-model="store.settings.自动插入状态栏占位符">
+                <span>{{ t('panel.update.autoInsertPlaceholder') }}</span>
+                <HelpIcon :help="t('panel.update.autoInsertPlaceholderHelp')" />
+            </Checkbox>
+
             <template
                 v-if="
                     store.settings.更新方式 === '额外模型解析' ||
@@ -25,6 +30,7 @@
 </template>
 
 <script setup lang="ts">
+import Checkbox from '@/panel/component/Checkbox.vue';
 import HelpIcon from '@/panel/component/HelpIcon.vue';
 import { useMvuI18n } from '@/i18n';
 import OverrideBadge from '@/panel/component/OverrideBadge.vue';

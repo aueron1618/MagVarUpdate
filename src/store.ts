@@ -231,6 +231,7 @@ const NewSettings = z
             .loose()
             .prefault({}),
         更新方式: z.enum(['随AI输出', '额外模型解析']).default('随AI输出'),
+        自动插入状态栏占位符: z.boolean().catch(true).default(true),
         额外模型解析配置: z
             .object({
                 破限方案: ExtraModelJailbreakStrategy.default('使用内置破限'),

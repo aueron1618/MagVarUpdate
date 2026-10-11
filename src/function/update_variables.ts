@@ -1726,7 +1726,11 @@ export async function handleVariablesInMessage(
             );
         }
         let new_message_content = listener_edited ? context.message_content : current_message;
-        if (!new_message_content.includes('<StatusPlaceHolderImpl/>')) {
+        // 开关仅控制自动补全，不移除模型或其他脚本已写入的占位符。
+        if (
+            settings.自动插入状态栏占位符 &&
+            !new_message_content.includes('<StatusPlaceHolderImpl/>')
+        ) {
             new_message_content += '\n\n<StatusPlaceHolderImpl/>';
         }
         if (new_message_content.includes('<status_current_variable>')) {

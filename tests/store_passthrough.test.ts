@@ -14,6 +14,36 @@ describe('settings unknown field passthrough', () => {
         (globalThis as any).SillyTavern.extensionSettings = {};
     });
 
+    test('defaults automatic placeholders to on and persists toggles across reloads', async () => {
+        const store = useDataStore();
+        expect(store.settings.自动插入状态栏占位符).toBe(true);
+        for (const enabled of [false, true]) {
+            store.settings.自动插入状态栏占位符 = enabled;
+            await nextTick();
+            expect(SillyTavern.extensionSettings.mvu_settings.自动插入状态栏占位符).toBe(enabled);
+            store._reload_settings();
+            expect(store.settings.自动插入状态栏占位符).toBe(enabled);
+            expect(store.effective_settings.自动插入状态栏占位符).toBe(enabled);
+        }
+    });
+
+    test.each([
+        [undefined, true],
+        [false, false],
+        [true, true],
+        ['invalid', true],
+    ])('loads placeholder setting %s without resetting other settings', (value, expected) => {
+        SillyTavern.extensionSettings.mvu_settings = {
+            ...(value === undefined ? {} : { 自动插入状态栏占位符: value }),
+            更新方式: '额外模型解析',
+            通知: { MVU框架加载成功: false },
+        };
+        const store = useDataStore();
+        expect(store.settings.自动插入状态栏占位符).toBe(expected);
+        expect(store.settings.更新方式).toBe('额外模型解析');
+        expect(store.settings.通知.MVU框架加载成功).toBe(false);
+    });
+
     test('defaults nonblocking analysis to off and persists an explicit opt-in', async () => {
         const store = useDataStore();
         expect(store.settings.兼容性.额外模型解析非阻塞).toBe(false);
@@ -760,6 +790,7 @@ describe('settings unknown field passthrough', () => {
 
         const migrated = store.settings as any;
         expect(migrated.future_top_level).toBe('keep-top-level');
+        expect(migrated.自动插入状态栏占位符).toBe(true);
         expect(migrated.通知.future_notification).toBe('keep-notification');
         expect(migrated.额外模型解析配置.future_extra_model).toEqual({ provider: 'legacy' });
         expect(migrated.自动清理变量).toMatchObject({
