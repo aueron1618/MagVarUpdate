@@ -834,6 +834,17 @@ function isNullOrWhiteSpace(str: string): boolean {
     return str == null || str.trim().length === 0;
 }
 
+function parseNumericString<T>(value: T): T | number {
+    if (
+        typeof value !== 'string' ||
+        !/^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(value.trim())
+    ) {
+        return value;
+    }
+    const numericValue = Number(value.replace(/,/g, ''));
+    return Number.isFinite(numericValue) ? numericValue : value;
+}
+
 /**
  * 执行变量更新，并可选收集原生执行器和 MVU Zod 报告的错误。
  * @param current_message_content 包含变量更新命令的消息正文。
@@ -1514,7 +1525,9 @@ export async function updateVariables(
                     assertVWD(isVWD, oldValue);
                     valueToAdd = oldValue[0]; // 对 ValueWithDescription 类型，操作其第一个元素
                 }
-                // console.warn(valueToAdd);
+                // Normalize numeric formatting before date detection can misread grouped numbers.
+                const originalValueToAdd = valueToAdd;
+                valueToAdd = parseNumericString(valueToAdd);
 
                 // 尝试将当前值解析为 Date 对象，无论其原始类型是 Date 还是字符串
                 let potentialDate: Date | null = null;
@@ -1530,7 +1543,7 @@ export async function updateVariables(
 
                 if (command.args.length === 2) {
                     // 双参数：调整数值或日期
-                    const delta = parseCommandValue(command.args[1]);
+                    const delta = parseNumericString(parseCommandValue(command.args[1]));
 
                     // 处理 Date 类型
                     if (potentialDate) {
@@ -1585,11 +1598,18 @@ export async function updateVariables(
                         }
                         let newValue = valueToAdd + delta;
                         newValue = parseFloat(newValue.toPrecision(12)); // 避免浮点数精度误差
+                        const finalValueToSet =
+                            typeof originalValueToAdd === 'string'
+                                ? newValue.toLocaleString('en-US', {
+                                      useGrouping: originalValueToAdd.includes(','),
+                                      maximumSignificantDigits: 12,
+                                  })
+                                : newValue;
                         if (isVWD) {
-                            oldValue[0] = newValue; // Update the first element
+                            oldValue[0] = finalValueToSet; // Update the first element
                             _.set(variables.stat_data, path, oldValue);
                         } else {
-                            _.set(variables.stat_data, path, newValue);
+                            _.set(variables.stat_data, path, finalValueToSet);
                         }
                         const finalNewValue = _.get(variables.stat_data, path);
                         if (isVWD) {
