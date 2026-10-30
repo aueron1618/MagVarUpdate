@@ -221,7 +221,12 @@ export const buttons: Button[] = [
                 for (const variables of schemas) {
                     const before = variables.schema;
                     reconcileAndApplySchema(variables as MvuData);
-                    changes.push({ target: variables, key: 'schema', before, after: variables.schema });
+                    changes.push({
+                        target: variables,
+                        key: 'schema',
+                        before,
+                        after: variables.schema,
+                    });
                 }
                 await SillyTavern.saveChat();
                 saved = true;
