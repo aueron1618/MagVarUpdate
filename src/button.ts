@@ -144,6 +144,117 @@ interface Button {
 
 export const buttons: Button[] = [
     {
+        name: '规范数值',
+        label_key: 'panel.button.normalizeNumbers',
+        function: async () => {
+            const chat = SillyTavern.chat;
+            const chat_id = SillyTavern.getCurrentChatId();
+            const changes: {
+                target: Record<string, any>;
+                key: string;
+                before: any;
+                after: any;
+            }[] = [];
+            const schemas = new Set<Record<string, any>>();
+            const affected_messages: { message_id: number }[] = [];
+            let saved = false;
+
+            const collect = (data: any, legacy_vwd: boolean) => {
+                if (!Array.isArray(data) && !_.isPlainObject(data)) return;
+                const is_vwd =
+                    legacy_vwd &&
+                    Array.isArray(data) &&
+                    data.length === 2 &&
+                    typeof data[1] === 'string';
+                for (const [key, value] of Object.entries(data)) {
+                    if (key === '$meta' || key === '$internal' || (is_vwd && key === '1')) continue;
+                    if (typeof value !== 'string') {
+                        collect(value, legacy_vwd);
+                        continue;
+                    }
+                    if (key === 'description') continue;
+                    const text = value.trim();
+                    if (!/^[+-]?(?:0|[1-9]\d{0,2})(?:,\d{3})+(?:\.\d+)?$/.test(text)) continue;
+                    const number = Number(text.replace(/,/g, ''));
+                    if (
+                        !Number.isFinite(number) ||
+                        (Number.isInteger(number) && !Number.isSafeInteger(number))
+                    ) {
+                        continue;
+                    }
+                    changes.push({ target: data, key, before: value, after: number });
+                }
+            };
+            const collectVariables = (variables: Record<string, any> | undefined) => {
+                if (!variables) return false;
+                const before = changes.length;
+                const native_schema = _.isPlainObject(variables.schema);
+                const legacy_vwd = native_schema && variables.schema.strictSet !== true;
+                collect(variables.stat_data, legacy_vwd);
+                if (changes.length !== before && native_schema) schemas.add(variables);
+                // Normalize bare values in display snapshots, not formatted change descriptions.
+                collect(variables.display_data, legacy_vwd);
+                collect(variables.delta_data, legacy_vwd);
+                return changes.length !== before;
+            };
+
+            try {
+                chat.forEach((message, message_id) => {
+                    let changed = false;
+                    for (const variables of Object.values(message.variables ?? {})) {
+                        if (collectVariables(variables)) changed = true;
+                    }
+                    if (changed) affected_messages.push({ message_id });
+                });
+                collectVariables(SillyTavern.chatMetadata?.variables);
+                const count = changes.length;
+                if (count === 0) {
+                    toastr.info(
+                        tr('runtime.button.noNumbersToNormalize'),
+                        tr('runtime.common.mvuTitle')
+                    );
+                    return;
+                }
+
+                // Commit all swipes and the existing chat mirror before the first await.
+                for (const change of changes) change.target[change.key] = change.after;
+                for (const variables of schemas) {
+                    const before = variables.schema;
+                    reconcileAndApplySchema(variables as MvuData);
+                    changes.push({ target: variables, key: 'schema', before, after: variables.schema });
+                }
+                await SillyTavern.saveChat();
+                saved = true;
+                if (
+                    SillyTavern.chat === chat &&
+                    SillyTavern.getCurrentChatId() === chat_id &&
+                    affected_messages.length > 0
+                ) {
+                    await setChatMessages(affected_messages, { refresh: 'affected' });
+                }
+                toastr.success(
+                    tr('runtime.button.numbersNormalized', { count }),
+                    tr('runtime.common.mvuTitle')
+                );
+            } catch (error) {
+                if (!saved) {
+                    for (const change of changes.reverse()) {
+                        if (change.target[change.key] === change.after) {
+                            change.target[change.key] = change.before;
+                        }
+                    }
+                }
+                const message = tr(
+                    saved
+                        ? 'runtime.button.normalizedNumbersRefreshFailed'
+                        : 'runtime.button.normalizeNumbersFailed'
+                );
+                console.error(message, error);
+                toastr.error(message, tr('runtime.common.mvuTitle'));
+            }
+        },
+    },
+    {
         name: '重新处理变量',
         label_key: 'panel.button.reprocessVariables',
         function: async () => {

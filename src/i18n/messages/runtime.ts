@@ -52,6 +52,22 @@ export const runtimeMessages = defineMessages({
         en: 'JSON error',
     },
 
+    'runtime.button.numbersNormalized': {
+        'zh-CN': '已规范 {count} 处数值并保存当前聊天',
+        en: 'Normalized {count} numeric values and saved the current chat',
+    },
+    'runtime.button.noNumbersToNormalize': {
+        'zh-CN': '当前聊天中没有需要规范的逗号分隔数值',
+        en: 'No comma-grouped numeric values need normalization in the current chat',
+    },
+    'runtime.button.normalizeNumbersFailed': {
+        'zh-CN': '规范或保存数值失败，请检查连接后重试',
+        en: 'Failed to normalize or save numeric values. Check the connection and retry.',
+    },
+    'runtime.button.normalizedNumbersRefreshFailed': {
+        'zh-CN': '数值已规范并保存，但消息刷新失败，请重新打开当前聊天',
+        en: 'Numeric values were normalized and saved, but message refresh failed. Reopen the current chat.',
+    },
     'runtime.button.initVarDataNotFound': {
         'zh-CN': '没有找到 InitVar 数据',
         en: 'No InitVar data was found',

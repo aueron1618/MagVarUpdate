@@ -112,6 +112,10 @@ export const panelMessages = defineMessages({
         'zh-CN': '修复按钮',
         en: 'Repair actions',
     },
+    'panel.button.normalizeNumbers': {
+        'zh-CN': '规范数值',
+        en: 'Normalize numbers',
+    },
     'panel.button.reprocessVariables': {
         'zh-CN': '重新处理变量',
         en: 'Reprocess variables',
