@@ -950,9 +950,11 @@ export async function updateVariables(
                     newValue = newValue.toISOString();
                 }
                 let isPathVWD = false;
+                // JSON Patch replaces the exact target; only legacy _.set unwraps VWD pairs.
+                const use_legacy_vwd = !strict_set && command.reason !== 'json_patch';
 
                 if (
-                    !strict_set &&
+                    use_legacy_vwd &&
                     Array.isArray(oldValue) &&
                     oldValue.length === 2 &&
                     typeof oldValue[1] === 'string' &&
@@ -991,10 +993,8 @@ export async function updateVariables(
                 }
 
                 // 检查是否为 ValueWithDescription 类型，以优化显示
-                const isStrict = !strict_set;
-
                 if (
-                    isStrict &&
+                    use_legacy_vwd &&
                     isValueWithDescriptionStatData(oldValue) &&
                     Array.isArray(finalNewValue)
                 ) {
