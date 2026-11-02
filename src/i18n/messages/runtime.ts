@@ -921,6 +921,11 @@ export const runtimeMessages = defineMessages({
         'zh-CN': 'SCHEMA 违规：无法向路径“{path}”处不可扩展的对象写入新键“{key}”。{reason}',
         en: "SCHEMA VIOLATION: Cannot assign the new key '{key}' into the non-extensible object at path '{path}'. {reason}",
     },
+    'runtime.variableUpdate.unsafeProperty': {
+        'zh-CN':
+            'additionalProperties 不允许向路径“{path}”写入包含危险键或保留元数据“{key}”的数据；已跳过操作。{reason}',
+        en: "additionalProperties cannot write data containing the unsafe key or reserved metadata '{key}' at path '{path}'. The operation was skipped. {reason}",
+    },
     'runtime.variableUpdate.assignNonExtensibleArray': {
         'zh-CN': 'SCHEMA 违规：无法向路径“{path}”处不可扩展的数组写入元素。{reason}',
         en: "SCHEMA VIOLATION: Cannot assign elements into the non-extensible array at path '{path}'. {reason}",

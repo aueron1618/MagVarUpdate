@@ -15,6 +15,11 @@
                 <HelpIcon :help="t('panel.update.autoInsertPlaceholderHelp')" />
             </Checkbox>
 
+            <Checkbox v-model="store.settings.additionalProperties">
+                <span>{{ t('panel.update.additionalProperties') }}</span>
+                <HelpIcon :help="t('panel.update.additionalPropertiesHelp')" />
+            </Checkbox>
+
             <template
                 v-if="
                     store.settings.更新方式 === '额外模型解析' ||

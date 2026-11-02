@@ -2,6 +2,7 @@
  * 测试场景：验证设置加载的逐字段容错和未知字段保留，重点覆盖 Pi 方案快照、凭证缓存及无效预算的不可发送状态。
  */
 import { useDataStore } from '@/store';
+import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc';
 import { nextTick } from 'vue';
 
 // 设置持久化契约：损坏字段不会重置整份配置，未知信息可保留，但不能成为可发送的错误连接。
@@ -42,6 +43,60 @@ describe('settings unknown field passthrough', () => {
         expect(store.settings.自动插入状态栏占位符).toBe(expected);
         expect(store.settings.更新方式).toBe('额外模型解析');
         expect(store.settings.通知.MVU框架加载成功).toBe(false);
+    });
+
+    test('defaults additionalProperties to off and persists toggles across reloads', async () => {
+        const store = useDataStore();
+        expect(store.settings.additionalProperties).toBe(false);
+        for (const enabled of [true, false]) {
+            store.settings.additionalProperties = enabled;
+            await nextTick();
+            expect(SillyTavern.extensionSettings.mvu_settings.additionalProperties).toBe(enabled);
+            store._reload_settings();
+            expect(store.settings.additionalProperties).toBe(enabled);
+            expect(store.effective_settings.additionalProperties).toBe(enabled);
+        }
+    });
+
+    test.each([
+        [undefined, false],
+        [false, false],
+        [true, true],
+        ['invalid', false],
+        [null, false],
+        [1, false],
+    ])('loads additionalProperties %s without resetting other settings', (value, expected) => {
+        SillyTavern.extensionSettings.mvu_settings = {
+            ...(value === undefined ? {} : { additionalProperties: value }),
+            更新方式: '额外模型解析',
+            通知: { MVU框架加载成功: false },
+        };
+        const store = useDataStore();
+        expect(store.settings.additionalProperties).toBe(expected);
+        expect(store.settings.更新方式).toBe('额外模型解析');
+        expect(store.settings.通知.MVU框架加载成功).toBe(false);
+    });
+
+    test('exposes a compiled additionalProperties checkbox with localized help', () => {
+        const { readFileSync } = jest.requireActual('node:fs') as typeof import('node:fs');
+        const { resolve } = jest.requireActual('node:path') as typeof import('node:path');
+        const filename = resolve(process.cwd(), 'src/panel/Update.vue');
+        const source = readFileSync(filename, 'utf8');
+        const parsed = parse(source, { filename });
+        expect(parsed.errors).toEqual([]);
+        const script = compileScript(parsed.descriptor, { id: 'additional-properties' });
+        const template = compileTemplate({
+            id: 'additional-properties',
+            filename,
+            source: parsed.descriptor.template!.content,
+            compilerOptions: { bindingMetadata: script.bindings },
+        });
+        expect(template.errors).toEqual([]);
+        expect(source).toContain('v-model="store.settings.additionalProperties"');
+        expect(source).toContain("t('panel.update.additionalProperties')");
+        expect(source).toContain(
+            '<HelpIcon :help="t(\'panel.update.additionalPropertiesHelp\')" />'
+        );
     });
 
     test('defaults nonblocking analysis to off and persists an explicit opt-in', async () => {
@@ -791,6 +846,7 @@ describe('settings unknown field passthrough', () => {
         const migrated = store.settings as any;
         expect(migrated.future_top_level).toBe('keep-top-level');
         expect(migrated.自动插入状态栏占位符).toBe(true);
+        expect(migrated.additionalProperties).toBe(false);
         expect(migrated.通知.future_notification).toBe('keep-notification');
         expect(migrated.额外模型解析配置.future_extra_model).toEqual({ provider: 'legacy' });
         expect(migrated.自动清理变量).toMatchObject({

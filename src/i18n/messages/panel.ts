@@ -169,6 +169,15 @@ export const panelMessages = defineMessages({
             '默认开启。处理变量时，若消息缺少 &lt;StatusPlaceHolderImpl/&gt;，则自动补上。适用于随 AI 输出、额外模型解析及手动重新处理。关闭后仍正常更新变量，不删除已有占位符；没有占位符的消息不会通过该占位符渲染状态栏。',
         en: 'Enabled by default. When processing variables, append &lt;StatusPlaceHolderImpl/&gt; if it is missing. Applies to AI output, extra-model parsing, and manual reprocessing. Disabling this keeps variable updates and existing placeholders unchanged; messages without a placeholder will not render a status bar through it.',
     },
+    'panel.update.additionalProperties': {
+        'zh-CN': '允许动态新增对象字段（additionalProperties）',
+        en: 'Allow dynamic object fields (additionalProperties)',
+    },
+    'panel.update.additionalPropertiesHelp': {
+        'zh-CN':
+            '默认关闭。开启后，原生 MVU 的对象插入和合并可以新增未声明的普通数据字段，对已有聊天也立即生效。关闭后遵循原 schema 的新增规则，不删除已新增字段；数组扩展、必填字段删除和 MVU Zod 校验不受影响。此开关不修改模型应答格式的 JSON Schema。',
+        en: 'Off by default. When enabled, native MVU object insertions and merges can add undeclared ordinary data fields, including in existing chats. Disabling it restores the original schema rules for future additions without deleting fields already added. Array expansion, required-field deletion, and MVU Zod validation remain unchanged. This does not modify the JSON Schema of the model response format.',
+    },
     'panel.update.method.aiOutput': {
         'zh-CN': '随 AI 输出',
         en: 'Alongside AI output',

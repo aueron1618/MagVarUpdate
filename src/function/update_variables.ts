@@ -1,5 +1,6 @@
 import {
     cleanUpMetadata,
+    EXTENSIBLE_MARKER,
     generateSchema,
     getSchemaForPath,
     reconcileAndApplySchema,
@@ -13,6 +14,7 @@ import {
     isObjectSchema,
     isValueWithDescriptionStatData,
     MvuData,
+    SchemaNode,
     TemplateType,
     UpdateContext,
     variable_events,
@@ -834,6 +836,56 @@ function isNullOrWhiteSpace(str: string): boolean {
     return str == null || str.trim().length === 0;
 }
 
+const UNSAFE_PROPERTY_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const SCHEMA_METADATA_KEYS = new Set(['$meta', '$arrayMeta', '$internal']);
+
+function findUnsafeProperty(value: unknown, includeMetadata = false): string | undefined {
+    if (includeMetadata && value === EXTENSIBLE_MARKER) return EXTENSIBLE_MARKER;
+    if (value === null || typeof value !== 'object') return undefined;
+    for (const [key, child] of Object.entries(value)) {
+        if (UNSAFE_PROPERTY_KEYS.has(key) || (includeMetadata && SCHEMA_METADATA_KEYS.has(key))) {
+            return key;
+        }
+        const unsafeKey = findUnsafeProperty(child, includeMetadata);
+        if (unsafeKey !== undefined) return unsafeKey;
+    }
+    return undefined;
+}
+
+/** Check the merge preview before relaxing an object's guard, without relaxing nested arrays. */
+function findClosedArrayGrowth(
+    oldValue: any,
+    newValue: any,
+    schema: SchemaNode,
+    path: string[]
+): string | undefined {
+    if (schema.type === 'array' && Array.isArray(oldValue) && Array.isArray(newValue)) {
+        if (schema.extensible !== true && newValue.length > oldValue.length) {
+            return pathSegmentsToLodashPath(path);
+        }
+        for (let index = 0; index < oldValue.length; index++) {
+            const invalidPath = findClosedArrayGrowth(
+                oldValue[index],
+                newValue[index],
+                schema.elementType,
+                [...path, String(index)]
+            );
+            if (invalidPath !== undefined) return invalidPath;
+        }
+    } else if (schema.type === 'object' && _.isObject(oldValue) && _.isObject(newValue)) {
+        for (const [key, child] of Object.entries(schema.properties)) {
+            const invalidPath = findClosedArrayGrowth(
+                _.get(oldValue, [key]),
+                _.get(newValue, [key]),
+                child,
+                [...path, key]
+            );
+            if (invalidPath !== undefined) return invalidPath;
+        }
+    }
+    return undefined;
+}
+
 /**
  * 执行变量更新，并可选收集原生执行器和 MVU Zod 报告的错误。
  * @param current_message_content 包含变量更新命令的消息正文。
@@ -883,6 +935,8 @@ export async function updateVariables(
     const strict_template = schema?.strictTemplate ?? false;
     const concat_template_array = schema?.concatTemplateArray ?? true;
     const strict_set = schema?.strictSet ?? false;
+    // Keep this override out of schema.extensible so switching it off restores native guards.
+    const additional_properties = useDataStore().effective_settings.additionalProperties;
 
     //处理别名
     for (const cmd of commands) {
@@ -1024,12 +1078,29 @@ export async function updateVariables(
                 // 检查目标路径是否指向一个集合（数组或对象）
                 // 如果路径已存在且其值为原始类型（字符串、数字等），则跳过此命令，以防止结构污染
                 const targetPath = path;
+                const unsafePathKey = additional_properties
+                    ? _.toPath(targetPath).find(
+                          key => UNSAFE_PROPERTY_KEYS.has(key) || SCHEMA_METADATA_KEYS.has(key)
+                      )
+                    : undefined;
+                if (unsafePathKey !== undefined) {
+                    outError(
+                        tr('runtime.variableUpdate.unsafeProperty', {
+                            path: targetPath,
+                            key: unsafePathKey,
+                            reason: reason_str,
+                        })
+                    );
+                    continue;
+                }
                 // 统一获取目标值和目标Schema，优雅地处理根路径
                 const existingValue =
                     targetPath === ''
                         ? variables.stat_data
                         : _.get(variables.stat_data, targetPath);
                 const targetSchema = getSchemaForPath(schema, targetPath);
+                const allow_object_expansion =
+                    additional_properties && _.isPlainObject(existingValue);
 
                 // 验证1：目标是否为原始类型？如果是，则无法插入。
                 if (
@@ -1047,9 +1118,16 @@ export async function updateVariables(
                     continue;
                 }
 
+                const keyOrIndex =
+                    command.args.length >= 3 ? parseCommandValue(command.args[1]) : undefined;
+
                 // 验证2：Schema 规则
                 if (targetSchema) {
-                    if (targetSchema.type === 'object' && targetSchema.extensible === false) {
+                    if (
+                        targetSchema.type === 'object' &&
+                        targetSchema.extensible === false &&
+                        !allow_object_expansion
+                    ) {
                         if (command.args.length === 2) {
                             // 合并
                             outError(
@@ -1062,7 +1140,7 @@ export async function updateVariables(
                         }
                         if (command.args.length >= 3) {
                             // 插入键
-                            const newKey = String(parseCommandValue(command.args[1]));
+                            const newKey = String(keyOrIndex);
                             if (!_.has(targetSchema.properties, newKey)) {
                                 outError(
                                     tr('runtime.variableUpdate.assignUnknownKey', {
@@ -1105,24 +1183,52 @@ export async function updateVariables(
                 }
                 // --- 所有验证通过，现在可以安全执行 ---
 
+                let valueToAssign = parseCommandValue(
+                    command.args[command.args.length === 2 ? 1 : 2]
+                );
+                const template =
+                    targetSchema &&
+                    (isArraySchema(targetSchema) ||
+                        (command.args.length >= 3 && isObjectSchema(targetSchema)))
+                        ? targetSchema.template
+                        : undefined;
+                if (additional_properties) {
+                    const unsafeKey =
+                        (command.args.length >= 3 &&
+                        (UNSAFE_PROPERTY_KEYS.has(String(keyOrIndex)) ||
+                            SCHEMA_METADATA_KEYS.has(String(keyOrIndex)))
+                            ? String(keyOrIndex)
+                            : undefined) ??
+                        findUnsafeProperty(valueToAssign, true) ??
+                        (command.args.length >= 3 || Array.isArray(existingValue)
+                            ? findUnsafeProperty(template)
+                            : undefined);
+                    if (unsafeKey !== undefined) {
+                        outError(
+                            tr('runtime.variableUpdate.unsafeProperty', {
+                                path: targetPath,
+                                key: unsafeKey,
+                                reason: reason_str,
+                            })
+                        );
+                        continue;
+                    }
+                }
+
+                if (valueToAssign instanceof Date) {
+                    valueToAssign = valueToAssign.toISOString();
+                } else if (Array.isArray(valueToAssign)) {
+                    valueToAssign = valueToAssign.map(item =>
+                        item instanceof Date ? item.toISOString() : item
+                    );
+                }
+
                 // 深拷贝旧值，防止直接修改影响后续比较
                 const oldValue = klona(existingValue);
                 let successful = false; // 标记插入是否成功
 
                 if (command.args.length === 2) {
                     // _.assign('path.to.array', value)
-                    // 解析插入值，支持复杂类型
-                    let valueToAssign = parseCommandValue(command.args[1]);
-
-                    // 在写入前，将 Date 对象（或数组中的Date）序列化
-                    if (valueToAssign instanceof Date) {
-                        valueToAssign = valueToAssign.toISOString();
-                    } else if (Array.isArray(valueToAssign)) {
-                        valueToAssign = valueToAssign.map(item =>
-                            item instanceof Date ? item.toISOString() : item
-                        );
-                    }
-
                     // 获取目标集合，可能为数组或对象
                     let collection =
                         targetPath === '' ? variables.stat_data : _.get(variables.stat_data, path);
@@ -1136,10 +1242,6 @@ export async function updateVariables(
                     if (Array.isArray(collection)) {
                         // 目标是数组，追加元素
                         // 检查是否有模板并应用
-                        const template =
-                            targetSchema && isArraySchema(targetSchema)
-                                ? targetSchema.template
-                                : undefined;
                         valueToAssign = applyTemplate(
                             valueToAssign,
                             template,
@@ -1154,6 +1256,27 @@ export async function updateVariables(
                         // 注意：对象合并时不应用模板，因为无法明确确定增加的元素
                         // 模板只在明确添加单个新属性时应用（如使用三参数的 assign）
                         if (_.isObject(valueToAssign) && !Array.isArray(valueToAssign)) {
+                            if (
+                                allow_object_expansion &&
+                                targetSchema?.type === 'object' &&
+                                targetSchema.extensible === false
+                            ) {
+                                const invalidPath = findClosedArrayGrowth(
+                                    collection,
+                                    _.merge(klona(collection), valueToAssign),
+                                    targetSchema,
+                                    _.toPath(targetPath)
+                                );
+                                if (invalidPath !== undefined) {
+                                    outError(
+                                        tr('runtime.variableUpdate.assignNonExtensibleArray', {
+                                            path: invalidPath,
+                                            reason: reason_str,
+                                        })
+                                    );
+                                    continue;
+                                }
+                            }
                             _.merge(collection, valueToAssign);
                             display_str = `MERGED object ${JSON.stringify(valueToAssign)} into object '${path}' ${reason_str}`;
                             successful = true;
@@ -1172,28 +1295,8 @@ export async function updateVariables(
                     }
                 } else if (command.args.length >= 3) {
                     // _.assign('path', key/index, value)
-                    // 解析插入值和键/索引
-                    let valueToAssign = parseCommandValue(command.args[2]);
-                    const keyOrIndex = parseCommandValue(command.args[1]);
-
-                    // 在写入前，将 Date 对象（或数组中的Date）序列化
-                    if (valueToAssign instanceof Date) {
-                        valueToAssign = valueToAssign.toISOString();
-                    } else if (Array.isArray(valueToAssign)) {
-                        valueToAssign = valueToAssign.map(item =>
-                            item instanceof Date ? item.toISOString() : item
-                        );
-                    }
-
                     let collection =
                         targetPath === '' ? variables.stat_data : _.get(variables.stat_data, path);
-
-                    // 获取模板
-                    const template =
-                        targetSchema &&
-                        (isArraySchema(targetSchema) || isObjectSchema(targetSchema))
-                            ? targetSchema.template
-                            : undefined;
 
                     if (
                         Array.isArray(collection) &&
